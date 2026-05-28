@@ -10,7 +10,7 @@ from pynput.keyboard import Controller as KeyboardController, Key, GlobalHotKeys
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QPlainTextEdit, QPushButton, QLabel, QLineEdit,
-    QComboBox, QFrame, QTextEdit
+    QComboBox, QFrame
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QObject
 from PyQt5.QtGui import QMouseEvent
@@ -20,15 +20,18 @@ SETTINGS_FILE = "settings.json"
 
 # ======================== 預設設定 ========================
 DEFAULT_SETTINGS = {
-    "api_type": "ollama",
+    "api_type": "ollama",            # "ollama" 或 "openai"
     "ollama_url": "http://127.0.0.1:11434/api/generate",
     "ollama_model": "llama3",
     "openai_url": "https://api.openai.com/v1/chat/completions",
     "openai_key": "",
-    "openai_model": "gpt-3.5-turbo",
-    "max_tokens": 512,
-    "beauty_prompt": "請將以下文字改寫得更流暢、優美、有文學感，只輸出改寫後的結果：",
-    "summary_prompt": "請用最精簡的方式摘要以下內容，只輸出摘要結果："
+    "openai_model": "gpt-3.5-turbo"
+}
+
+# ======================== 風格 Prompt ========================
+STYLE_PROMPTS = {
+    "優美": "請將以下文字改寫得更流暢、優美、有文學感，只輸出繁體改寫後的結果：",
+    "摘要": "請用最精簡的方式摘要以下內容，只輸出繁體摘要結果："
 }
 # ============================================================
 
@@ -36,10 +39,7 @@ def load_settings():
     if os.path.exists(SETTINGS_FILE):
         try:
             with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-                loaded = json.load(f)
-                # 合併預設值，確保新欄位也存在
-                merged = {**DEFAULT_SETTINGS, **loaded}
-                return merged
+                return {**DEFAULT_SETTINGS, **json.load(f)}
         except:
             pass
     return DEFAULT_SETTINGS.copy()
@@ -58,12 +58,7 @@ class GuiSignal(QObject):
 gui_signal = GuiSignal()
 
 def call_llama(text, style_key, settings):
-    # 根據 style_key 從設定中選取對應的 prompt
-    if style_key == "優美":
-        instruction = settings.get("beauty_prompt", DEFAULT_SETTINGS["beauty_prompt"])
-    else:  # 摘要
-        instruction = settings.get("summary_prompt", DEFAULT_SETTINGS["summary_prompt"])
-
+    instruction = STYLE_PROMPTS.get(style_key, "請美化以下文字：")
     prompt = f"{instruction}\n{text}"
 
     try:
@@ -74,7 +69,7 @@ def call_llama(text, style_key, settings):
                 "stream": False,
                 "options": {
                     "temperature": 0.7,
-                    "num_predict": settings.get("max_tokens", 512)
+                    "num_predict": 5120
                 }
             }
             resp = requests.post(settings["ollama_url"], json=payload, timeout=60)
@@ -90,7 +85,7 @@ def call_llama(text, style_key, settings):
                 "model": settings["openai_model"],
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.7,
-                "max_tokens": settings.get("max_tokens", 512)
+                "max_tokens": 5120
             }
             resp = requests.post(settings["openai_url"], headers=headers, json=payload, timeout=60)
             resp.raise_for_status()
@@ -187,7 +182,7 @@ class FloatWindow(QWidget):
                 padding: 4px 8px;
             }
             QPushButton#settingsBtn:hover { background-color: #777; }
-            QLineEdit, QComboBox, QTextEdit {
+            QLineEdit, QComboBox {
                 background-color: rgba(50, 50, 50, 230);
                 border: 1px solid #555;
                 border-radius: 4px;
@@ -251,7 +246,7 @@ class FloatWindow(QWidget):
 
         main_layout.addLayout(btn_layout)
 
-        # 設定面板
+        # 設定面板 (預設隱藏)
         self.settings_frame = QFrame()
         self.settings_frame.setObjectName("settingsFrame")
         self.settings_frame.setVisible(False)
@@ -301,27 +296,6 @@ class FloatWindow(QWidget):
         openai_layout.addWidget(self.openai_model_edit)
         settings_layout.addWidget(self.openai_group)
 
-        # 輸出長度
-        tokens_layout = QHBoxLayout()
-        tokens_layout.addWidget(QLabel("輸出長度 (tokens):"))
-        self.max_tokens_edit = QLineEdit()
-        self.max_tokens_edit.setPlaceholderText("512")
-        tokens_layout.addWidget(self.max_tokens_edit)
-        settings_layout.addLayout(tokens_layout)
-
-        # 自訂提示詞
-        settings_layout.addWidget(QLabel("優美提示詞:"))
-        self.beauty_prompt_edit = QTextEdit()
-        self.beauty_prompt_edit.setAcceptRichText(False)
-        self.beauty_prompt_edit.setMaximumHeight(80)
-        settings_layout.addWidget(self.beauty_prompt_edit)
-
-        settings_layout.addWidget(QLabel("摘要提示詞:"))
-        self.summary_prompt_edit = QTextEdit()
-        self.summary_prompt_edit.setAcceptRichText(False)
-        self.summary_prompt_edit.setMaximumHeight(80)
-        settings_layout.addWidget(self.summary_prompt_edit)
-
         main_layout.addWidget(self.settings_frame)
 
         # 狀態列
@@ -334,7 +308,7 @@ class FloatWindow(QWidget):
 
         # 事件攔截
         self.text_edit.installEventFilter(self)
-        self.resize(480, 350)
+        self.resize(460, 300)
 
     def load_settings_to_ui(self):
         # API 類型
@@ -351,17 +325,6 @@ class FloatWindow(QWidget):
         self.openai_url_edit.setText(self.settings.get("openai_url", ""))
         self.openai_key_edit.setText(self.settings.get("openai_key", ""))
         self.openai_model_edit.setText(self.settings.get("openai_model", ""))
-
-        # 輸出長度
-        self.max_tokens_edit.setText(str(self.settings.get("max_tokens", 512)))
-
-        # 自訂提示詞
-        self.beauty_prompt_edit.setPlainText(
-            self.settings.get("beauty_prompt", DEFAULT_SETTINGS["beauty_prompt"])
-        )
-        self.summary_prompt_edit.setPlainText(
-            self.settings.get("summary_prompt", DEFAULT_SETTINGS["summary_prompt"])
-        )
 
         self.on_api_type_changed(self.api_type_combo.currentText())
 
@@ -383,22 +346,12 @@ class FloatWindow(QWidget):
         self.settings["openai_url"] = self.openai_url_edit.text().strip()
         self.settings["openai_key"] = self.openai_key_edit.text().strip()
         self.settings["openai_model"] = self.openai_model_edit.text().strip()
-
-        # 輸出長度
-        try:
-            self.settings["max_tokens"] = int(self.max_tokens_edit.text().strip())
-        except:
-            self.settings["max_tokens"] = 512
-
-        # 自訂提示詞
-        self.settings["beauty_prompt"] = self.beauty_prompt_edit.toPlainText().strip()
-        self.settings["summary_prompt"] = self.summary_prompt_edit.toPlainText().strip()
-
         save_settings(self.settings)
 
     def toggle_settings(self):
         visible = not self.settings_frame.isVisible()
         self.settings_frame.setVisible(visible)
+        # 自動調整視窗大小 (簡單做法)
         self.adjustSize()
 
     def select_style(self, style):
@@ -425,7 +378,7 @@ class FloatWindow(QWidget):
         return super().eventFilter(obj, event)
 
     def process_and_paste(self):
-        self.save_current_settings()   # 確保使用最新設定
+        self.save_current_settings()   # 確保最新
         text = self.text_edit.toPlainText().strip()
         if not text:
             self.status_label.setText("請先輸入文字")
